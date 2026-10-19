@@ -12,7 +12,7 @@ static std::vector<uint8_t> make_valid_packet() {
     pkt.push_back(0x00);
     // IPv4: version/ihl=0x45 (ihl=5 -> 20 bytes), rest mostly zero, protocol=17 (UDP)
     pkt.push_back(0x45);
-    pkt.insert(pkt.end(), 7, 0x00);
+    pkt.insert(pkt.end(), 8, 0x00);
     pkt.push_back(17); // protocol
     pkt.insert(pkt.end(), 10, 0x00); // checksum + src_ip + dst_ip (pad to 20 total)
     // UDP: src_port, dst_port, length (network order: 12 = 0x000C), checksum

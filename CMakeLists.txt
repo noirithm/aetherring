@@ -26,6 +26,7 @@ FetchContent_MakeAvailable(googletest benchmark)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(URING REQUIRED IMPORTED_TARGET liburing>=2.8)
 
+enable_testing()
 add_subdirectory(tests)
 add_subdirectory(bench)
 add_subdirectory(arena)
