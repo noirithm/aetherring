@@ -53,6 +53,9 @@ enum class ParseError {
     NotUdp,
     TooShortForUdp,
     UdpLengthInconsistent,
+    BadIpVersion,
+    FragmentedPacket,
+    IpLengthInconsistent,
 };
 
 template <typename T>
@@ -83,6 +86,10 @@ inline std::expected<ParsedPacket, ParseError> parse_udp_packet(std::span<const 
     }
     Ipv4Header ip = bit_cast_from<Ipv4Header>(rest);
 
+    if ((ip.version_ihl >> 4) != 4) {
+        return std::unexpected(ParseError::BadIpVersion);
+    }
+
     unsigned ihl_words = ip.version_ihl & 0x0F;
     std::size_t ihl_bytes = static_cast<std::size_t>(ihl_words) * 4;
     if (ihl_bytes < sizeof(Ipv4Header)) {
@@ -95,7 +102,20 @@ inline std::expected<ParsedPacket, ParseError> parse_udp_packet(std::span<const 
         return std::unexpected(ParseError::NotUdp);
     }
 
-    auto ip_payload = rest.subspan(ihl_bytes);
+    // flags_fragment is network order: 0x2000 = MF, low 13 bits = offset.
+    // A fragment has no complete UDP header, so reject MF or offset != 0.
+    uint16_t frag = static_cast<uint16_t>((ip.flags_fragment << 8) | (ip.flags_fragment >> 8));
+    if ((frag & 0x3FFF) != 0) {
+        return std::unexpected(ParseError::FragmentedPacket);
+    }
+
+    uint16_t total_host = static_cast<uint16_t>((ip.total_length << 8) | (ip.total_length >> 8));
+    std::size_t ip_total = total_host;
+    if (ip_total < ihl_bytes || ip_total > rest.size()) {
+        return std::unexpected(ParseError::IpLengthInconsistent);
+    }
+    // The IP datagram ends at total_length; anything after is Ethernet padding.
+    auto ip_payload = rest.subspan(ihl_bytes, ip_total - ihl_bytes);
     if (ip_payload.size() < sizeof(UdpHeader)) {
         return std::unexpected(ParseError::TooShortForUdp);
     }
