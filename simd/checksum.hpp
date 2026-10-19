@@ -10,7 +10,7 @@
 namespace aether {
 
 inline uint32_t checksum_scalar(std::span<const uint8_t> data) {
-    uint32_t sum = 0;
+    uint64_t sum = 0;
     std::size_t i = 0;
 
     for (; i + 1 < data.size(); i += 2) {
@@ -24,12 +24,13 @@ inline uint32_t checksum_scalar(std::span<const uint8_t> data) {
     while (sum >> 16) {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
-    return sum;
+    return static_cast<uint32_t>(sum);
 }
 
 #if defined(__x86_64__)
+// Handles at most 64 KiB (32-bit lane accumulators); use checksum_avx2() for any size.
 [[gnu::target("avx2")]]
-inline uint32_t checksum_avx2(std::span<const uint8_t> data) {
+inline uint32_t checksum_avx2_block(std::span<const uint8_t> data) {
     __m256i acc = _mm256_setzero_si256();
     std::size_t i = 0;
 
@@ -70,6 +71,22 @@ inline uint32_t checksum_avx2(std::span<const uint8_t> data) {
     }
     return sum;
 }
+
+// Public AVX2 entry: 64 KiB blocks keep the 32-bit lanes and the horizontal
+// sum from overflowing; block totals are accumulated in 64 bits.
+inline uint32_t checksum_avx2(std::span<const uint8_t> data) {
+    constexpr std::size_t kBlock = 64 * 1024; // even, so 16-bit word alignment holds
+    uint64_t total = 0;
+    while (data.size() > kBlock) {
+        total += checksum_avx2_block(data.first(kBlock));
+        data = data.subspan(kBlock);
+    }
+    total += checksum_avx2_block(data);
+    while (total >> 16) {
+        total = (total & 0xFFFF) + (total >> 16);
+    }
+    return static_cast<uint32_t>(total);
+}
 #endif
 
 inline uint32_t checksum(std::span<const uint8_t> data) {
@@ -79,6 +96,11 @@ inline uint32_t checksum(std::span<const uint8_t> data) {
     }
 #endif
     return checksum_scalar(data);
+}
+
+// RFC 1071 Internet checksum: one's complement of the folded sum above.
+inline uint16_t internet_checksum(std::span<const uint8_t> data) {
+    return static_cast<uint16_t>(~checksum(data));
 }
 
 } // namespace aether
